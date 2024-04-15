@@ -29,17 +29,19 @@ def json_encoder(obj):
     raise TypeError
 
 
-CACHE_NAME = '.libscache'
+CACHE_NAME = 'libscache.dat'
 
 
 class Cache:
-    __slots__ = ("defined_symbols", "undefined_symbols", "dependencies")
+    __slots__ = ("filepath", "defined_symbols", "undefined_symbols", "dependencies")
 
+    filepath: Path
     dependencies: dict[str, set[str]]
     defined_symbols: dict[str, str]
     undefined_symbols: dict[str, set[str]]
 
-    def __init__(self):
+    def __init__(self, file: Path):
+        self.filepath = file
         self.defined_symbols = {}
         self.undefined_symbols = {}
         self.dependencies = {}
@@ -80,7 +82,7 @@ class Cache:
 
     def load(self):
         try:
-            with open(CACHE_NAME, 'r') as f:
+            with open(self.filepath, 'r') as f:
                 data = json.load(f)
                 self.defined_symbols = data['defined']
                 self.undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
@@ -89,7 +91,7 @@ class Cache:
             pass
 
     def save(self):
-            with open(CACHE_NAME, 'w') as f:
+            with open(self.filepath, 'w') as f:
                 json.dump(self, f, indent=2, default=json_encoder)
 
 
@@ -104,8 +106,8 @@ def parse_nm_output(nm_output):
     for line in nm_output.splitlines():
         if (match := re.match(r'^(?:[0-9a-f]{16})?\s+(?P<type>[AcBbCcDdGgRrSsTtUuVvWw])\s+(?P<symbol>.*)$', line)):
             stype, symbol = match.groups()
-            # (T)ext, (R)ead-only, (W)eak
-            if stype in ['T', 'R', 'W']:
+            # (T)text, (R)read-only, (W)weak, (B)bss area
+            if stype in ['T', 'R', 'W', 'B']:
                 defined_symbols.append(symbol)
             elif stype == 'U':  # (U)ndefined
                 undefined_symbols.append(symbol)
@@ -145,6 +147,8 @@ def analyze_library(library_path: str, cache: Cache):
 
 
 class DepGraphNode:
+    __slots__ = ("name", "in_refs", "out_refs", "data")
+
     def __init__(self, name: str):
         self.name = name
         self.in_refs = set()
@@ -160,6 +164,8 @@ class DepGraphNode:
 
 
 class DepGraph:
+    __slots__ = ("nodes")
+
     def __init__(self):
         self.nodes: dict[str, DepGraphNode] = {}
 
@@ -202,28 +208,27 @@ class DepGraph:
         return f"DepGraph[{str(list(self.nodes.values()))}]"
 
 
-def compute_dependencies(cache: Cache, libs: list[str]):
+def sort_by_dependency(cache: Cache, libs: list[str]):
     logger = logging.getLogger('graph')
 
     graph = DepGraph()
     graph.create(cache, libs)
 
-    for i, lib in enumerate(libs):
-        graph.get_node(lib).data['order'] = i
-
     roots = [n for n in graph.get_nodes() if n.is_root]
-    roots.sort(key = lambda n : n.data.get('order', 10_000))
     sorted_libs = []
 
     while len(roots) > 0:
-        node = roots.pop()
-        sorted_libs.append(node.name)
-        logger.debug(f'processing node {node}')
-        node_dependencies: set[DepGraphNode] = node.out_refs.copy()
-        for target in node_dependencies:
-            graph.remove_dependency(node.name, target.name)
-            if target.is_root:
-                roots.append(target)
+        roots.sort(key=lambda n : n.name)
+        sorted_libs.extend([r.name for r in roots])
+        next_roots = []
+        for node in roots:
+            logger.debug(f'processing node {node}')
+            node_dependencies: set[DepGraphNode] = node.out_refs.copy()
+            for target in node_dependencies:
+                graph.remove_dependency(node.name, target.name)
+                if target.is_root:
+                    next_roots.append(target)
+        roots = next_roots
     return sorted_libs
 
 
@@ -294,7 +299,7 @@ def cmd_analyze_libs(cache: Cache, args: argparse.Namespace):
 
 def cmd_sort_libs(cache: Cache, args: argparse.Namespace):
     patched_names = [lib_name for lib in args.libs if (lib_name := cache.find_library(lib))]
-    order = compute_dependencies(cache, patched_names)
+    order = sort_by_dependency(cache, patched_names)
     order = format_lib(order, args)
 
     list_separator = bytes(args.sep, 'utf-8').decode('unicode_escape')
@@ -321,7 +326,7 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
         if args.minimize:
             deps = minimize_dependencies_list(cache, deps)
         elif args.recursive:
-            deps = compute_dependencies(cache, deps)
+            deps = sort_by_dependency(cache, deps)
         if args.sort:
             deps = sorted(deps)
 
@@ -333,6 +338,7 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('project', help='project_file')
     subparsers = parser.add_subparsers(title='commands', required=True)
 
     print_args = argparse.ArgumentParser(add_help=False)
@@ -372,7 +378,7 @@ if __name__ == '__main__':
         level=logging.DEBUG if args.verbose else logging.WARN
     )
 
-    cache = Cache()
+    cache = Cache(Path(args.project))
     args.func(cache, args)
 
     sys.exit(0)
