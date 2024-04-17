@@ -7,6 +7,7 @@ import re
 import json
 import argparse
 import logging
+import fnmatch
 import pdb
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ def json_encoder(obj):
             'defined': obj.defined_symbols,
             'undefined': obj.undefined_symbols,
             'dependencies': obj.dependencies,
+            'components': obj.components,
         }
     if isinstance(obj, set):
         return list(obj)
@@ -33,20 +35,28 @@ CACHE_NAME = 'libscache.dat'
 
 
 class Cache:
-    __slots__ = ("filepath", "defined_symbols", "undefined_symbols", "dependencies")
+    __slots__ = ("filepath", "defined_symbols", "undefined_symbols", "dependencies", "components")
 
     filepath: Path
     dependencies: dict[str, set[str]]
     defined_symbols: dict[str, str]
     undefined_symbols: dict[str, set[str]]
+    components: dict[str, list[str]]
 
     def __init__(self, file: Path):
         self.filepath = file
         self.defined_symbols = {}
         self.undefined_symbols = {}
         self.dependencies = {}
+        self.components = {}
         self.load()
     
+    def list_libraries(self, *, skip_empty = False):
+        if skip_empty:
+            pass
+            # TODO implement this
+        return list(self.dependencies.keys())
+
     def is_library(self, library: str):
         return library in self.dependencies
     
@@ -79,6 +89,14 @@ class Cache:
                 queue.extend(new_deps)
         return deps
 
+    def is_component(self, component: str):
+        return component in self.components
+
+    def get_component_libraries(self, component: str):
+        return self.components.get(component, [])
+    
+    def set_component_libraries(self, component: str, libraries: list[str]):
+        self.components[component] = set(libraries)
 
     def load(self):
         try:
@@ -87,6 +105,7 @@ class Cache:
                 self.defined_symbols = data['defined']
                 self.undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
                 self.dependencies = {k: set(v) for k, v in data['dependencies'].items()}
+                self.components = {k: set(v) for k, v in data['components'].items()}
         except FileNotFoundError:
             pass
 
@@ -162,6 +181,9 @@ class DepGraphNode:
     def __repr__(self):
         return f"Node({self.name}, depends_on:{[n.name for n in self.out_refs]})"
 
+    def __str__(self):
+        return self.name
+
 
 class DepGraph:
     __slots__ = ("nodes")
@@ -222,7 +244,7 @@ def sort_by_dependency(cache: Cache, libs: list[str]):
         sorted_libs.extend([r.name for r in roots])
         next_roots = []
         for node in roots:
-            logger.debug(f'processing node {node}')
+            logger.debug('processing node %s', node)
             node_dependencies: set[DepGraphNode] = node.out_refs.copy()
             for target in node_dependencies:
                 graph.remove_dependency(node.name, target.name)
@@ -251,13 +273,16 @@ def quote_lib_name(name: str, args: argparse.Namespace):
         return args.quote + name + args.quote
     return name
 
+def strip_library_name(name):
+    return PurePath(name).stem.removeprefix('lib')
+
 def format_lib(name: str, args: argparse.Namespace):
     if isinstance(name, (list, set)):
         return [format_lib(x, args) for x in name]
     
     mode = args.names
     if mode == 'short':
-        name = PurePath(name).stem.removeprefix('lib')
+        name = strip_library_name(name)
     return quote_lib_name(name, args)
 
 
@@ -336,13 +361,62 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
             print(f"- {lib}: " + ", ".join(format_lib(deps, args)))
 
 
+def cmd_print_cpp_info(cache: Cache, args: argparse.Namespace):
+    print('Conan style cpp_info:\n')
+    for lib in args.libs:
+        if cache.is_component(lib):
+            libs = cache.get_component_libraries(lib)
+        else:
+            libs = [lib]
+        lib_name = cache.find_library(lib)
+        used_libraries = cache.get_dependencies(lib_name)
+        if args.minimize:
+            used_libraries = minimize_dependencies_list(cache, used_libraries)
+        dependencies = [strip_library_name(lib) for lib in used_libraries]
+
+        lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in libs])
+        print(f'self.cpp_info.components["{lib}"].libs = [{lib_names}]')
+        print(f'self.cpp_info.components["{lib}"].requires.extend([')
+        for dep in dependencies:
+            print(f'    "{dep}"')
+        print('])')
+
+
+def cmd_define_component(cache: Cache, args: argparse.Namespace):
+    component = args.component
+    current_libraries = cache.get_component_libraries(component)
+    logger.debug('old libraries in component %s: %s', component, current_libraries)
+
+    libs = []
+    all_libs = cache.list_libraries(skip_empty=True)
+    for lib in args.libs:
+        new_libs = fnmatch.filter(all_libs, lib)
+        libs.extend(new_libs)
+    cache.set_component_libraries(component, libs)
+
+    cache.save()
+
+
+def configure_logging(args: argparse.Namespace):
+    level = logging.WARN
+    if args.verbose == 1:
+        level = logging.INFO
+    elif args.verbose >= 2:
+        level = logging.DEBUG
+
+    logging.basicConfig(
+        format='%(levelname)s: %(message)s',
+        level=level
+    )
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('project', help='project_file')
     subparsers = parser.add_subparsers(title='commands', required=True)
 
     print_args = argparse.ArgumentParser(add_help=False)
-    print_args.add_argument('-v', '--verbose', action='store_true')
+    print_args.add_argument('-v', '--verbose', action='count', default=0)
     print_args.add_argument('--names', choices=['short', 'full'], default="short")
     print_args.add_argument('--quote', default='')
 
@@ -371,12 +445,19 @@ if __name__ == '__main__':
     parser_deps.add_argument('--sort', action='store_true', help='sort lexicographically')
     parser_deps.set_defaults(func=cmd_find_dependencies)
 
+    module = subparsers.add_parser('component', parents=[print_args]) 
+    module.add_argument('component', help='the component name')
+    module.add_argument('libs', nargs='+', help='library names or globs')
+    module.set_defaults(func=cmd_define_component)
+
+    cpp_info = subparsers.add_parser('cppinfo', parents=[print_args])
+    cpp_info.add_argument('libs', nargs='+')
+    cpp_info.add_argument('--minimize', action='store_true')
+    cpp_info.set_defaults(func=cmd_print_cpp_info)
+
     args = parser.parse_args()
 
-    logging.basicConfig(
-        format='%(message)s',
-        level=logging.DEBUG if args.verbose else logging.WARN
-    )
+    configure_logging(args)
 
     cache = Cache(Path(args.project))
     args.func(cache, args)
