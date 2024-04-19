@@ -4,114 +4,12 @@ import sys
 from pathlib import Path, PurePath
 import subprocess
 import re
-import json
 import argparse
 import logging
 import fnmatch
-import pdb
+from conan_barbarian.data import Cache
 
 logger = logging.getLogger(__name__)
-
-
-###############################################################################
-#  Data Cache
-###############################################################################
-
-
-def json_encoder(obj):
-    if isinstance(obj, Cache):
-        return {
-            'defined': obj.defined_symbols,
-            'undefined': obj.undefined_symbols,
-            'dependencies': obj.dependencies,
-            'components': obj.components,
-        }
-    if isinstance(obj, set):
-        return list(obj)
-    raise TypeError
-
-
-CACHE_NAME = 'libscache.dat'
-
-
-class Cache:
-    __slots__ = ("filepath", "defined_symbols", "undefined_symbols", "dependencies", "components")
-
-    filepath: Path
-    dependencies: dict[str, set[str]]
-    defined_symbols: dict[str, str]
-    undefined_symbols: dict[str, set[str]]
-    components: dict[str, list[str]]
-
-    def __init__(self, file: Path):
-        self.filepath = file
-        self.defined_symbols = {}
-        self.undefined_symbols = {}
-        self.dependencies = {}
-        self.components = {}
-        self.load()
-    
-    def list_libraries(self, *, skip_empty = False):
-        if skip_empty:
-            pass
-            # TODO implement this
-        return list(self.dependencies.keys())
-
-    def is_library(self, library: str):
-        return library in self.dependencies
-    
-    def find_library(self, name: str):
-        if not name.startswith('lib'):
-            name = 'lib' + name
-
-        suffix = PurePath(name).suffix
-        candidates = [name] if suffix else [f'{name}.a', f'{name}.so']
-        for candidate in candidates:
-            if self.is_library(candidate):
-                return candidate
-        return None
-    
-    def add_library(self, library: str):
-        self.dependencies.setdefault(library, set())
-
-    def add_dependency(self, src, tgt):
-        if src != tgt:
-            self.dependencies.setdefault(src, set()).add(tgt)
-
-    def get_dependencies(self, library: str, transitive=False):
-        deps = self.dependencies.get(library, set())
-        if transitive:
-            queue = list(deps)
-            while len(queue) > 0:
-                item = queue.pop()
-                item_deps = self.dependencies.get(item, set())
-                new_deps = item_deps - deps
-                queue.extend(new_deps)
-        return deps
-
-    def is_component(self, component: str):
-        return component in self.components
-
-    def get_component_libraries(self, component: str):
-        return self.components.get(component, [])
-    
-    def set_component_libraries(self, component: str, libraries: list[str]):
-        self.components[component] = set(libraries)
-
-    def load(self):
-        try:
-            with open(self.filepath, 'r') as f:
-                data = json.load(f)
-                self.defined_symbols = data['defined']
-                self.undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
-                self.dependencies = {k: set(v) for k, v in data['dependencies'].items()}
-                self.components = {k: set(v) for k, v in data['components'].items()}
-        except FileNotFoundError:
-            pass
-
-    def save(self):
-            with open(self.filepath, 'w') as f:
-                json.dump(self, f, indent=2, default=json_encoder)
 
 
 ###############################################################################
@@ -151,14 +49,13 @@ def analyze_library(library_path: str, cache: Cache):
     cache.add_library(libname)
 
     for symbol in defined:
-        cache.defined_symbols[symbol] = libname
-        depending_libs = cache.undefined_symbols.pop(symbol, None)
-        if depending_libs:
-            for dl in depending_libs:
-                cache.add_dependency(dl, libname)
+        cache.define_symbol(symbol, libname)
+        depending_libs = cache.define_symbol(symbol, libname)
+        for dl in depending_libs:
+            cache.add_dependency(dl, libname)
 
     for symbol in undefined:
-        definer = cache.defined_symbols.get(symbol, None)
+        definer = cache.get_library_defining_symbol(symbol)
         if definer:
             cache.add_dependency(libname, definer)
         else:
@@ -217,11 +114,9 @@ class DepGraph:
         tgt_node.in_refs.remove(src_node)
 
     def create(self, cache: Cache, roots: list[str]):
-        if not roots:
-            roots = cache.dependencies.keys()
         for lib in roots:
             self.get_node(lib)
-            node_deps = cache.dependencies.get(lib, [])
+            node_deps = cache.get_dependencies(lib)
             for dep in node_deps:
                 if dep != lib:
                     self.add_dependency(lib, dep)
@@ -332,7 +227,7 @@ def cmd_sort_libs(cache: Cache, args: argparse.Namespace):
 
 
 def cmd_find_symbol(cache: Cache, args: argparse.Namespace):
-    lib = cache.defined_symbols.get(args.symbol, None)
+    lib = cache.get_library_defining_symbol(args.symbol)
     if not lib:
         print(f"Symbol {args.symbol} not found")
         sys.exit(-1)
@@ -388,7 +283,7 @@ def cmd_define_component(cache: Cache, args: argparse.Namespace):
     logger.debug('old libraries in component %s: %s', component, current_libraries)
 
     libs = []
-    all_libs = cache.list_libraries(skip_empty=True)
+    all_libs = cache.all_library_files(skip_empty=True)
     for lib in args.libs:
         new_libs = fnmatch.filter(all_libs, lib)
         libs.extend(new_libs)
@@ -410,7 +305,7 @@ def configure_logging(args: argparse.Namespace):
     )
 
 
-if __name__ == '__main__':
+def main_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument('project', help='project_file')
     subparsers = parser.add_subparsers(title='commands', required=True)
@@ -459,7 +354,11 @@ if __name__ == '__main__':
 
     configure_logging(args)
 
-    cache = Cache(Path(args.project))
+    cache = Cache()
+    cache.load(Path(args.project))
     args.func(cache, args)
 
     sys.exit(0)
+
+if __name__ == '__main__':
+    main_cli()
