@@ -1,0 +1,6 @@
+{
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.extraPaths": [
+        ".venv/lib/python3.9/site-packages"
+    ]
+}

@@ -5,6 +5,7 @@ venv/
 # Caches / byte-compiled
 __pycache__/
 .pytest_cache/
+.coverage
 
 # PDM
 .pdm-python
