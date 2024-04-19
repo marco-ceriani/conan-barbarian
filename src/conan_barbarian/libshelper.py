@@ -229,9 +229,9 @@ def cmd_sort_libs(cache: Cache, args: argparse.Namespace):
 def cmd_find_symbol(cache: Cache, args: argparse.Namespace):
     lib = cache.get_library_defining_symbol(args.symbol)
     if not lib:
-        print(f"Symbol {args.symbol} not found")
+        print(f"Symbol '{args.symbol}' not found")
         sys.exit(-1)
-    print(f"Symbol {args.symbol} found in library {format_lib(lib, args)}")
+    print(f"Symbol '{args.symbol}' found in library {format_lib(lib, args)}")
 
 
 def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
@@ -354,8 +354,8 @@ def main_cli():
 
     configure_logging(args)
 
-    cache = Cache()
-    cache.load(Path(args.project))
+    cache = Cache(Path(args.project))
+    cache.load()
     args.func(cache, args)
 
     sys.exit(0)

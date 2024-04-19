@@ -55,16 +55,17 @@ class Cache:
         lib_name = strip_library_name(library)
         return self.libraries.get(lib_name)
     
-    def find_library(self, name: str):
-        if not name.startswith('lib'):
-            name = 'lib' + name
+    def find_library(self, libname: str):
+        name = strip_library_name(libname)
+        lib = self.libraries.get(name)
 
-        suffix = PurePath(name).suffix
-        candidates = [name] if suffix else [f'{name}.a', f'{name}.so']
-        for candidate in candidates:
-            if self.is_library(candidate):
-                return candidate
-        return None
+        if lib is None:
+            return None
+
+        ext = PurePath(libname).suffix
+        if ext and PurePath(lib.filename).suffix != ext:
+            return None
+        return lib.filename
 
     def add_library(self, library: str, *, system=False):
         lib = Library(library, system=system)

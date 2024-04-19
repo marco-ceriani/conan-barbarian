@@ -40,6 +40,18 @@ def test_adding_system_libraries():
     assert not cache.get_library('boost_regex').system
 
 
+def test_find_library():
+    cache = Cache()
+    cache.add_library('libssl.so')
+    cache.add_library('libmath.a')
+
+    assert cache.find_library('ssl') == 'libssl.so'
+    assert cache.find_library('libssl.so') == 'libssl.so'
+    assert cache.find_library('libssl.a') is None
+    assert cache.find_library('math') == 'libmath.a'
+    assert cache.find_library('libmath.so') is None
+    assert cache.find_library('libmath.a') == 'libmath.a'
+
 def test_add_dependencies():
     cache = Cache()
     cache.add_library('libfoo.so')
