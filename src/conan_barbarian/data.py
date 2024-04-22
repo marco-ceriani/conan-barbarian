@@ -20,6 +20,20 @@ class Library:
     def add_dependency(self, dependency: str):
         self._dependencies.add(dependency)
 
+    @staticmethod
+    def from_json(data):
+        lib = Library(data['file'], data['system'])
+        for dependency in data.get('needs', []):
+            lib.add_dependency(dependency)
+        return lib
+    
+    def to_json(self):
+        return {
+            'file': self.filename,
+            'system': self.system,
+            "needs": self._dependencies
+        }
+
     def __repr__(self):
         return f'Lib({self.name}={self.filename})'
 
@@ -29,18 +43,18 @@ class Library:
 
 class Cache:
     filepath: Path
+    libraries: dict[str, Library]
     dependencies: dict[str, set[str]]
     defined_symbols: dict[str, str]
     undefined_symbols: dict[str, set[str]]
     components: dict[str, list[str]]
-    libraries: dict[str, Library]
 
     def __init__(self, path: Path = None):
         self.filepath = path
+        self.libraries = {}
         self.defined_symbols = {}
         self.undefined_symbols = {}
         self.components = {}
-        self.libraries = {}
 
     def list_libraries(self):
         return self.libraries.values()
@@ -58,10 +72,8 @@ class Cache:
     def find_library(self, libname: str):
         name = strip_library_name(libname)
         lib = self.libraries.get(name)
-
         if lib is None:
             return None
-
         ext = PurePath(libname).suffix
         if ext and PurePath(lib.filename).suffix != ext:
             return None
@@ -115,11 +127,19 @@ class Cache:
     def set_component_libraries(self, component: str, libraries: list[str]):
         self.components[component] = set(libraries)
 
+    def to_json(self):
+        return {
+            'libraries': list(self.libraries.values()),
+            'defined': self.defined_symbols,
+            'undefined': self.undefined_symbols,
+            'components': self.components,
+        }
+
     def load(self):
         try:
             with open(self.filepath, 'r') as f:
                 data = json.load(f)
-                libraries = [Library(lib['file'], lib['system']) for lib in data['libraries']]
+                libraries = [Library.from_json(lib) for lib in data['libraries']]
                 self.libraries = {lib.name: lib for lib in libraries}
                 self.defined_symbols = data['defined']
                 self.undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
@@ -139,19 +159,8 @@ def strip_library_name(name):
 
 
 def json_encoder(obj):
-    if isinstance(obj, Cache):
-        return {
-            'libraries': list(obj.libraries.values()),
-            'defined': obj.defined_symbols,
-            'undefined': obj.undefined_symbols,
-            'components': obj.components,
-        }
-    if isinstance(obj, Library):
-        return {
-            'name': obj.name,
-            'file': obj.filename,
-            'system': obj.system
-        }
+    if getattr(obj.__class__, 'to_json', None):
+        return obj.to_json()
     if isinstance(obj, set):
         return list(obj)
     raise TypeError(f'unexpected {obj}')

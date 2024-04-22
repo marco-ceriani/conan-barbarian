@@ -48,9 +48,13 @@ def test_find_library():
     assert cache.find_library('ssl') == 'libssl.so'
     assert cache.find_library('libssl.so') == 'libssl.so'
     assert cache.find_library('libssl.a') is None
+
     assert cache.find_library('math') == 'libmath.a'
     assert cache.find_library('libmath.so') is None
     assert cache.find_library('libmath.a') == 'libmath.a'
+
+    assert cache.find_library('icecream') is None
+
 
 def test_add_dependencies():
     cache = Cache()
