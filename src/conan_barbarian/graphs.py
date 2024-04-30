@@ -34,23 +34,25 @@ class DepGraphNode:
 
 
 class DepGraph:
-    __slots__ = ("nodes")
-    nodes: dict[str, DepGraphNode]
+    __slots__ = ("_nodes")
+    _nodes: dict[str, DepGraphNode]
 
     def __init__(self):
-        self.nodes = {}
+        self._nodes = {}
 
-    def get_keys(self) -> frozenset[str]:
-        return frozenset(self.nodes.keys())
+    @property
+    def keys(self) -> frozenset[str]:
+        return frozenset(self._nodes.keys())
     
-    def get_nodes(self) -> list[DepGraphNode]:
-        return list(self.nodes.values())
+    @property
+    def nodes(self) -> list[DepGraphNode]:
+        return list(self._nodes.values())
     
     def get_node(self, lib: str):
-        node = self.nodes.get(lib, None)
+        node = self._nodes.get(lib, None)
         if not node:
             node = DepGraphNode(lib)
-            self.nodes[lib] = node
+            self._nodes[lib] = node
         return node
     
     def add_dependency(self, src: str, tgt: str):
@@ -74,10 +76,10 @@ class DepGraph:
         """
         text = io.StringIO()
         text.write('digraph {\n')
-        for node in self.nodes.values():
+        for node in self.nodes:
             if node.data.get('component', False):
                 text.write(f'  {node.name} [shape=box];\n')
-        for node in self.nodes.values():
+        for node in self.nodes:
             for child in node.out_refs:
                 text.write(f'  "{node.name}" -> "{child.name}";\n')
         text.write('}\n')
@@ -86,7 +88,7 @@ class DepGraph:
 
 def sort_graph(graph: DepGraph):
     logger = logging.getLogger('graph')
-    roots = [n for n in graph.get_nodes() if n.is_root]
+    roots = [n for n in graph.nodes if n.is_root]
     sorted_names = []
 
     while len(roots) > 0:
@@ -103,7 +105,7 @@ def sort_graph(graph: DepGraph):
                     next_roots.append(target)
         roots = next_roots
 
-    for node in graph.nodes.values():
+    for node in graph.nodes:
         try:
             del node.data['visited']
         except KeyError:

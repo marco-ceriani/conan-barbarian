@@ -14,7 +14,7 @@ def test_graph_sort_1():
     a_deps = sort_graph(graph)
     assert a_deps == ['A', 'B', 'C', 'D']
 
-    for node in graph.nodes.values():
+    for node in graph.nodes:
         assert len(node.data) == 0
 
 def test_graph_sort_case_2():

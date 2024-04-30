@@ -33,27 +33,27 @@ def test_create_graph():
 
     # single leaf
     graph = ut.create_libs_graph(cache, ['lib5.so'])
-    assert graph.get_keys() == {'lib5.so'}
+    assert graph.keys == {'lib5.so'}
 
     # one arg with two children
     graph = ut.create_libs_graph(cache, ['lib2.so'])
-    assert graph.get_keys() == {'lib2.so', 'lib4.so', 'lib5.so'}
+    assert graph.keys == {'lib2.so', 'lib4.so', 'lib5.so'}
 
     # two children, one in arguments
     graph = ut.create_libs_graph(cache, ['lib5.so', 'lib2.so'])
-    assert graph.get_keys() == {'lib2.so', 'lib4.so', 'lib5.so'}
+    assert graph.keys == {'lib2.so', 'lib4.so', 'lib5.so'}
 
     # one child
     graph = ut.create_libs_graph(cache, ['lib3.so'])
-    assert graph.get_keys() == {'lib3.so', 'lib4.so'}
+    assert graph.keys == {'lib3.so', 'lib4.so'}
 
     # the root
     graph = ut.create_libs_graph(cache, ['lib1.so'])
-    assert graph.get_keys() == {'lib1.so', 'lib2.so', 'lib3.so', 'lib4.so', 'lib5.so'}
+    assert graph.keys == {'lib1.so', 'lib2.so', 'lib3.so', 'lib4.so', 'lib5.so'}
 
     # the root and some other node in arguments
     graph = ut.create_libs_graph(cache, ['lib5.so', 'lib3.so', 'lib1.so'])
-    assert graph.get_keys() == {'lib1.so', 'lib2.so', 'lib3.so', 'lib4.so', 'lib5.so'}
+    assert graph.keys == {'lib1.so', 'lib2.so', 'lib3.so', 'lib4.so', 'lib5.so'}
 
 
 def node_children(graph: DepGraph, id: str):
@@ -73,7 +73,7 @@ def test_create_graph_with_components():
     graph = ut.create_libs_graph(cache, ['lib1.so', 'comp'])
     print(graph.to_dot())
 
-    assert 'comp' in graph.get_keys()
+    assert 'comp' in graph.keys
 
     assert node_children(graph, 'comp') == {'lib3.so', 'lib4.so'}
     
