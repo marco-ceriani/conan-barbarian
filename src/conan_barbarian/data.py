@@ -1,11 +1,13 @@
 from pathlib import PurePath, Path
 import json
+from typing import Optional
 
 class Library:
     name: str
     filename: str
     system: bool
     _dependencies: set[str]
+    package: str
 
     def __init__(self, filename, system=False):
         self.name = strip_library_name(filename)
@@ -40,21 +42,30 @@ class Library:
     def __str__(self):
         return self.name
     
+    def __eq__(self, value: object) -> bool:
+        if isinstance(value, Library):
+            return self.filename == value.filename
+        return False
+    
 
 class Cache:
-    filepath: Path
+    filepath: Optional[Path]
     libraries: dict[str, Library]
     dependencies: dict[str, set[str]]
     defined_symbols: dict[str, str]
     undefined_symbols: dict[str, set[str]]
-    components: dict[str, list[str]]
+    packages: dict[str, set[str]]
+    components: dict[str, set[str]]
+    _libs2components: dict[str, str]
 
-    def __init__(self, path: Path = None):
+    def __init__(self, path: Optional[Path] = None):
         self.filepath = path
         self.libraries = {}
         self.defined_symbols = {}
         self.undefined_symbols = {}
+        self.packages = {}
         self.components = {}
+        self._libs2components = {}
 
     def list_libraries(self):
         return self.libraries.values()
@@ -67,21 +78,20 @@ class Cache:
     
     def get_library(self, library: str):
         lib_name = strip_library_name(library)
-        return self.libraries.get(lib_name)
+        lib = self.libraries.get(lib_name)
+        if lib and _different_extension(library, lib.filename):
+            return None
+        return lib
     
     def find_library(self, libname: str):
-        name = strip_library_name(libname)
-        lib = self.libraries.get(name)
-        if lib is None:
-            return None
-        ext = PurePath(libname).suffix
-        if ext and PurePath(lib.filename).suffix != ext:
-            return None
-        return lib.filename
+        lib = self.get_library(libname)
+        return lib and lib.filename
 
-    def add_library(self, library: str, *, system=False):
+    def add_library(self, library: str, *, system=False, package=None):
         lib = Library(library, system=system)
         self.libraries[lib.name] = lib
+        if package:
+            self.packages.setdefault(package, set()).add(lib.name)
 
     def add_dependency(self, src, tgt):
         src_name = strip_library_name(src)
@@ -109,7 +119,8 @@ class Cache:
         """Adds the definition of a symbol, and returns a set of libraries that need that symbol"""
         assert self.get_library(library_file)
         self.defined_symbols[symbol] = library_file
-        return self.undefined_symbols.pop(symbol, set())
+        results = self.undefined_symbols.pop(symbol, set())
+        return results
 
     def get_library_defining_symbol(self, symbol: str):
         """Returns the filename of the library that defines a symbol"""
@@ -117,6 +128,14 @@ class Cache:
     
     def add_undefined_symbol_dependency(self, symbol, library_file):
         self.undefined_symbols.setdefault(symbol, set()).add(library_file)
+
+    def is_package(self, package: str):
+        return package in self.packages
+    
+    def package_libraries(self, package):
+        return list(self.packages.get(package, []))
+    
+    # components
 
     def is_component(self, component: str):
         return component in self.components
@@ -127,11 +146,24 @@ class Cache:
     def set_component_libraries(self, component: str, libraries: list[str]):
         self.components[component] = set(libraries)
 
+    def get_library_component(self, lib: str):
+        if len(self.components) > 0 and len(self._libs2components) == 0:
+            self.__build_components_reverse_map()
+
+        return self._libs2components.get(strip_library_name(lib), None)
+
+    def __build_components_reverse_map(self):
+        for comp, libs in self.components.items():
+            for lib in libs:
+                self._libs2components[strip_library_name(lib)] = comp
+
+
     def to_json(self):
         return {
             'libraries': list(self.libraries.values()),
             'defined': self.defined_symbols,
             'undefined': self.undefined_symbols,
+            'packages': self.packages,
             'components': self.components,
         }
 
@@ -141,6 +173,7 @@ class Cache:
                 data = json.load(f)
                 libraries = [Library.from_json(lib) for lib in data['libraries']]
                 self.libraries = {lib.name: lib for lib in libraries}
+                self.packages = {k: set(v) for k, v in data['packages'].items()}
                 self.defined_symbols = data['defined']
                 self.undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
                 self.components = {k: set(v) for k, v in data['components'].items()}
@@ -156,6 +189,12 @@ class Cache:
 
 def strip_library_name(name):
     return PurePath(name).stem.removeprefix('lib')
+
+
+def _different_extension(first, second):
+    ext1 = PurePath(first).suffix
+    ext2 = PurePath(second).suffix
+    return ext1 and ext1 != ext2
 
 
 def json_encoder(obj):

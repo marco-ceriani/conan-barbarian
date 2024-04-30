@@ -56,6 +56,24 @@ def test_find_library():
     assert cache.find_library('icecream') is None
 
 
+def test_get_library():
+    cache = Cache()
+    cache.add_library('libssl.so')
+    cache.add_library('libmath.a')
+
+    dynlib = Library('libssl.so')
+    assert cache.get_library('ssl') == dynlib
+    assert cache.get_library('libssl.so') == dynlib
+    assert cache.get_library('libssl.a') is None
+
+    staticlib = Library('libmath.a')
+    assert cache.get_library('math') == staticlib
+    assert cache.get_library('libmath.so') is None
+    assert cache.get_library('libmath.a') == staticlib
+
+    assert cache.get_library('potato') is None
+
+
 def test_add_dependencies():
     cache = Cache()
     cache.add_library('libfoo.so')
@@ -135,6 +153,24 @@ def test_cache_io(tmp_path):
     assert lib2.system == True
 
 
+### Symbols Management
+
+
+def test_components():
+    cache = Cache()
+    for lib in ['librabbit.so', 'libbird.so', 'libwolf.so']:
+        cache.add_library(lib)
+    cache.set_component_libraries('c1', ['libbird.so', 'libwolf.so'])
+
+    assert set(cache.get_component_libraries('c1')) == {'libbird.so', 'libwolf.so'}
+    assert cache.get_library_component('libbird.so') == 'c1'
+    assert cache.get_library_component('libwolf.so') == 'c1'
+    assert cache.get_library_component('librabbit.so') is None
+
+
+### Symbols Management
+
+
 def test_symbols_definition():
     cache = Cache()
     cache.add_library('libdream.so')
@@ -142,6 +178,18 @@ def test_symbols_definition():
 
     assert cache.get_library_defining_symbol('dream::catchIt()') == 'libdream.so'
     assert cache.get_library_defining_symbol('printf') is None
+
+
+def test_symbols_definition_with_depending_libs():
+    cache = Cache()
+    cache.add_library('libchase.a')
+    cache.add_undefined_symbol_dependency('dream::catchIt()', 'libchase.a')
+    cache.add_library('libdream.so')
+    depending_libs = cache.define_symbol('dream::catchIt()', 'libdream.so')
+
+    assert cache.get_library_defining_symbol('dream::catchIt()') == 'libdream.so'
+    assert depending_libs == {'libchase.a'}
+
 
 def test_find_undefined_symbo():
     cache = Cache()

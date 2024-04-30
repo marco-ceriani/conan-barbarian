@@ -2,6 +2,7 @@ from conan_barbarian.data import Cache
 from conan_barbarian.graphs import DepGraph
 from conan_barbarian.libshelper import sort_by_dependency, sort_graph
 
+
 # Graph sorting
 
 def test_graph_sort_1():
@@ -60,3 +61,9 @@ def test_libs_sort_case_3():
 
     sorted_libs = sort_by_dependency(cache, ['A', 'B', 'C', 'M', 'N', 'O'])
     assert sorted_libs == ['A', 'M', 'B', 'N', 'C', 'O']
+
+def test_sort_with_components():
+    cache = Cache()
+    define_libs(cache, ['A', 'B', 'C', 'D', 'X'])
+
+

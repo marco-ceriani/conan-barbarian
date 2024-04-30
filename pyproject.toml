@@ -6,7 +6,9 @@ description = "utility to help building cpp_info data in conanfile scripts"
 authors = [
     {name = "Marco Ceriani", email = "marco-ceriani@users.noreply.github.com"},
 ]
-dependencies = []
+dependencies = [
+    "pytest-timeout>=2.3.1",
+]
 readme = "README.md"
 license = {text = "WTFPL"}
 
@@ -24,4 +26,7 @@ distribution = true
 [tool.pdm.dev-dependencies]
 pytest = [
     "pytest-cov>=5.0.0",
+]
+check = [
+    "mypy>=1.10.0",
 ]

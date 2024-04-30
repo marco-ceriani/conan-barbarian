@@ -2,8 +2,14 @@
 Graph structures and algorithms.
 """
 
+import io
+
+
 class DepGraphNode:
     __slots__ = ("name", "in_refs", "out_refs", "data")
+    in_refs: set['DepGraphNode']
+    out_refs: set['DepGraphNode']
+    data: dict[str, object]
 
     def __init__(self, name: str):
         self.name = name
@@ -24,12 +30,13 @@ class DepGraphNode:
 
 class DepGraph:
     __slots__ = ("nodes")
+    nodes: dict[str, DepGraphNode]
 
     def __init__(self):
-        self.nodes: dict[str, DepGraphNode] = {}
+        self.nodes = {}
 
-    def get_keys(self) -> list[str]:
-        return self.nodes.keys()
+    def get_keys(self) -> frozenset[str]:
+        return frozenset(self.nodes.keys())
     
     def get_nodes(self) -> list[DepGraphNode]:
         return list(self.nodes.values())
@@ -55,3 +62,18 @@ class DepGraph:
 
     def __repr__(self):
         return f"DepGraph[{str(list(self.nodes.values()))}]"
+    
+    def to_dot(self):
+        """
+        Creates a DOT description of the graph
+        """
+        text = io.StringIO()
+        text.write('digraph {\n')
+        for node in self.nodes.values():
+            if node.data.get('component', False):
+                text.write(f'  {node.name} [shape=box];\n')
+        for node in self.nodes.values():
+            for child in node.out_refs:
+                text.write(f'  "{node.name}" -> "{child.name}";\n')
+        text.write('}\n')
+        return text.getvalue()
