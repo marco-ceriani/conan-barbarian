@@ -3,6 +3,7 @@ Graph structures and algorithms.
 """
 
 import io
+import logging
 
 
 class DepGraphNode:
@@ -20,6 +21,10 @@ class DepGraphNode:
     @property
     def is_root(self):
         return len(self.in_refs) == 0
+    
+    @property
+    def in_degree(self):
+        return len(self.in_refs)
 
     def __repr__(self):
         return f"Node({self.name}, depends_on:{[n.name for n in self.out_refs]})"
@@ -77,3 +82,31 @@ class DepGraph:
                 text.write(f'  "{node.name}" -> "{child.name}";\n')
         text.write('}\n')
         return text.getvalue()
+
+
+def sort_graph(graph: DepGraph):
+    logger = logging.getLogger('graph')
+    roots = [n for n in graph.get_nodes() if n.is_root]
+    sorted_names = []
+
+    while len(roots) > 0:
+        roots.sort(key=lambda n : n.name)
+        sorted_names.extend([r.name for r in roots])
+        next_roots = []
+        for node in roots:
+            logger.debug('processing node %s', node)
+            node_children: set[DepGraphNode] = node.out_refs.copy()
+            for target in node_children:
+                num_visits = target.data.get('visited', 0) + 1
+                target.data['visited'] = num_visits
+                if num_visits == target.in_degree:
+                    next_roots.append(target)
+        roots = next_roots
+
+    for node in graph.nodes.values():
+        try:
+            del node.data['visited']
+        except KeyError:
+            pass
+    return sorted_names
+

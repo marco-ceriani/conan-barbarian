@@ -8,7 +8,7 @@ import fnmatch
 from collections.abc import Collection
 
 from conan_barbarian.data import Cache
-from conan_barbarian.graphs import DepGraph, DepGraphNode
+from conan_barbarian.graphs import DepGraph, DepGraphNode, sort_graph
 from conan_barbarian.scraping import analyze_library
 
 logger = logging.getLogger(__name__)
@@ -54,26 +54,6 @@ def create_libs_graph(cache: Cache, roots: list[str]):
 def sort_by_dependency(cache: Cache, libs: list[str]):
     graph = create_libs_graph(cache, libs)
     return sort_graph(graph)
-
-
-def sort_graph(graph: DepGraph):
-    logger = logging.getLogger('graph')
-    roots = [n for n in graph.get_nodes() if n.is_root]
-    sorted_libs = []
-
-    while len(roots) > 0:
-        roots.sort(key=lambda n : n.name)
-        sorted_libs.extend([r.name for r in roots])
-        next_roots = []
-        for node in roots:
-            logger.debug('processing node %s', node)
-            node_dependencies: set[DepGraphNode] = node.out_refs.copy()
-            for target in node_dependencies:
-                graph.remove_dependency(node.name, target.name)
-                if target.is_root:
-                    next_roots.append(target)
-        roots = next_roots
-    return sorted_libs
 
 
 def quote_lib_name(name: str, args: argparse.Namespace):

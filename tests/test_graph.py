@@ -1,6 +1,6 @@
 from conan_barbarian.data import Cache
-from conan_barbarian.graphs import DepGraph
-from conan_barbarian.libshelper import sort_by_dependency, sort_graph
+from conan_barbarian.graphs import DepGraph, sort_graph
+from conan_barbarian.libshelper import sort_by_dependency
 
 
 # Graph sorting
@@ -13,6 +13,9 @@ def test_graph_sort_1():
 
     a_deps = sort_graph(graph)
     assert a_deps == ['A', 'B', 'C', 'D']
+
+    for node in graph.nodes.values():
+        assert len(node.data) == 0
 
 def test_graph_sort_case_2():
     graph = DepGraph()
