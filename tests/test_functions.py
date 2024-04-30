@@ -23,6 +23,13 @@ def test_filter_libs():
 
 
 def test_create_graph():
+    """
+    graph {
+        lib1.so -> lib2.so -> lib5.so;
+        lib1.so -> lib3.so -> lib4.so;
+        lib2.so -> lib4.so;
+    }
+    """
     cache = Cache()
     add_libraries(cache, ['lib1.so', 'lib2.so', 'lib3.so', 'lib4.so', 'lib5.so'])
     cache.add_dependency('lib1.so', 'lib2.so')
@@ -61,6 +68,13 @@ def node_children(graph: DepGraph, id: str):
 
 
 def test_create_graph_with_components():
+    """
+    graph {
+        lib1.so -> lib2.so;
+        lib1.so -> lib3.so (comp) -> lib5.so;
+        lib1.so -> lib4.so (comp) -> lib6.so;
+    }
+    """
     cache = Cache()
     add_libraries(cache, [f'lib{i}.so' for i in range(1, 7)])
     cache.add_dependency('lib1.so', 'lib2.so')
@@ -85,6 +99,15 @@ def test_create_graph_with_components():
 
 
 def test_create_graph_with_more_components():
+    """
+    graph {
+        lib1.so -> lib2.so;
+        lib1.so -> lib3.so -> lib5.so -> lib8.so;
+                   lib3.so -> lib6.so;
+        lib1.so -> lib4.so -> lib6.so;
+                   lib4.so -> lib7.so;
+    }
+    """
     cache = Cache()
     add_libraries(cache, [f'lib{i}.so' for i in range(1, 9)])
     cache.add_dependency('lib1.so', 'lib2.so')
@@ -117,6 +140,13 @@ def test_create_graph_with_more_components():
 
 @pytest.mark.timeout(5)
 def test_create_graph_with_components_with_internal_dependencies():
+    """
+    graph {
+        lib1.so -> lib2.so (x) -> lib5.so (x) -> lib6.so;
+        lib1.so -> lib3.so (x);
+        lib1.so -> lib4.so -> lib5.so (x);
+    }
+    """
     cache = Cache()
     add_libraries(cache, [f'lib{i}.so' for i in range(1, 7)])
     cache.add_dependency('lib1.so', 'lib2.so')

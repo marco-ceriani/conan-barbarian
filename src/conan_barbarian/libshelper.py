@@ -8,7 +8,7 @@ import fnmatch
 from collections.abc import Collection
 
 from conan_barbarian.data import Cache
-from conan_barbarian.graphs import DepGraph, DepGraphNode, sort_graph
+from conan_barbarian.graphs import DepGraph, DepGraphNode, prune_arcs, sort_graph
 from conan_barbarian.scraping import analyze_library
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ def print_component_cpp_info(component: str, libs: Collection[str], dependencies
     print()
 
 
-def gather_all_libraries(cache: Cache, items: list[str]):
+def expand_args_to_libraries(cache: Cache, items: list[str]):
     libraries = set()
     for item in items:
         if cache.is_package(item):
@@ -183,43 +183,26 @@ class ComponentInfo:
 
 
 def cmd_print_cpp_info(cache: Cache, args: argparse.Namespace):
-    libraries = gather_all_libraries(cache, args.items)
-    components: dict[str, ComponentInfo] = {}
+    libraries = expand_args_to_libraries(cache, args.items)
+    graph = create_libs_graph(cache, libraries)
 
-    for lib in libraries:
-        library = cache.get_library(lib)
-        component = cache.get_library_component(library.name)
-        dependencies = set([cache.get_library_component(dep) or strip_library_name(dep)
-                            for dep in library.dependencies])
-        if component:
-            comp_info = components.setdefault(component, ComponentInfo())
-            comp_info.libs.add(library.name)
-            comp_info.deps.update(dependencies)
+    if args.minimize:
+        graph = prune_arcs(graph)
+
+    def node_visitor(node: DepGraphNode):
+        if cache.is_component(node.name):
+            libs = [strip_library_name(out.name) for out in node.out_refs]
+            deps = {strip_library_name(t.name) for lib_node in node.out_refs for t in lib_node.out_refs }
+            deps = deps.difference(libs)
+            print_component_cpp_info(node.name, libs, deps)
         else:
-            components[library.name] = ComponentInfo({library.name}, dependencies)
-
-    for comp, comp_info in components.items():
-        for lib in comp_info.libs:
-            while lib in comp_info.deps:
-                comp_info.deps.remove(lib)
-        while comp in comp_info.deps:
-            comp_info.deps.remove(comp)
-        #comp_info.deps = comp_info.deps.difference(comp_info.libs)
-        #try:
-        #    comp_info.deps.remove(comp)
-        #except KeyError:
-        #    pass
-
-    # TODO: dependencies must be sorted topologically
-    # TODO: remove duplicated dependencies
-    # TODO: rename components with the same name as packages
-    sorted_components = sort_by_dependency(cache, [strip_library_name(lib) for lib in components.keys()])
-    print(sorted_components)
-    print()
+            lib = cache.get_library(node.name)
+            component_name = lib.name if not cache.is_package(lib.name) else f'_{lib.name}'
+            deps = [strip_library_name(out.name) for out in node.out_refs]
+            print_component_cpp_info(component_name, [lib.name], deps)
 
     print('def package_info(self):')
-    for comp, info in components.items():
-        print_component_cpp_info(comp, info.libs, info.deps)
+    graph.traverse(node_visitor)
 
 
 def cmd_define_component(cache: Cache, args: argparse.Namespace):
@@ -270,7 +253,6 @@ def main_cli():
     parser_analyze.add_argument('libs', nargs='+', help='paths to libraries or folders')
     parser_analyze.add_argument('--system', action='store_true')
     parser_analyze.add_argument('--package', help='add the libraries to a logical package')
-    #parser_analyze.add_argument('-f', '--force', help='force analysis replacing cached info', action='store_true')  # just overwrites, not replaces
     parser_analyze.set_defaults(func=cmd_analyze_libs)
 
     parser_sort = subparsers.add_parser('sort', parents=[print_args],
