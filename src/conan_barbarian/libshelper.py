@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from os import replace
+import re
 import sys
 from pathlib import Path, PurePath
 import argparse
@@ -34,21 +36,32 @@ def create_libs_graph(cache: Cache, roots: list[str]):
     queue = list(roots)
     while len(queue) > 0:
         item = queue.pop()
+        if not cache.is_library(item):
+            raise Exception(f"'{item} is not a library")
+
+        graph.get_node(item)
         visited.add(item)
-        node = graph.get_node(item)
-        if cache.is_component(item):
-            item_deps = cache.get_component_libraries(item)
-            node.data['component'] = True
-        else:
-            owner_comp = cache.get_library_component(item)
-            item_deps = set([dep_comp if (dep_comp := cache.get_library_component(dep)) 
-                             and dep_comp != owner_comp else dep
-                            for dep in cache.get_dependencies(item)])
+        item_deps = cache.get_dependencies(item)
         for dep in item_deps:
             graph.add_dependency(item, dep)
             if not dep in queue and not dep in visited:
                 queue.append(dep)
     return graph
+
+
+def replace_libs_with_components(cache: Cache, graph: DepGraph):
+    for node in graph.nodes:
+        component = cache.get_library_component(node.name)
+        if component:
+            logger.debug(f"replacing '{node.name}' with '{component}'")
+            comp_node = graph.get_node(component)
+            for src in node.in_refs:
+                if src != comp_node:
+                    graph.add_dependency(src.name, component)
+            for tgt in node.out_refs:
+                if tgt != comp_node:
+                    graph.add_dependency(component, tgt.name)
+            graph.remove_node(node.name)
 
 
 def sort_by_dependency(cache: Cache, libs: list[str]):
@@ -149,14 +162,14 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
             print(f"- {lib}: " + ", ".join(format_lib(deps, args)))
 
 
-def print_component_cpp_info(component: str, libs: Collection[str], dependencies: Collection[str]):
+def print_component_cpp_info(component: str, libs: Collection[str], dependencies: Collection[str], *, indent='\t'):
     lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in libs])
-    print(f'\tself.cpp_info.components["{component}"].libs = [{lib_names}]')
+    print(f'{indent}{indent}self.cpp_info.components["{component}"].libs = [{lib_names}]')
     if len(dependencies) > 0:
-        print(f'\tself.cpp_info.components["{component}"].requires.extend([')
+        print(f'{indent}{indent}self.cpp_info.components["{component}"].requires.extend([')
         for dep in dependencies:
-            print(f'\t\t"{dep}",')
-        print('\t])')
+            print(f'{indent}{indent}{indent}"{dep}",')
+        print(f'{indent}{indent}])')
     print()
 
 
@@ -186,22 +199,35 @@ def cmd_print_cpp_info(cache: Cache, args: argparse.Namespace):
     libraries = expand_args_to_libraries(cache, args.items)
     graph = create_libs_graph(cache, libraries)
 
+    indentation = '\t'
+    if args.indent > 0:
+        indentation = ''.join([' ' for x in range(args.indent)])
+
+    replace_libs_with_components(cache, graph)
     if args.minimize:
         graph = prune_arcs(graph)
 
+    def patch_lib_name(name):
+        stripped = strip_library_name(name)
+        if cache.is_package(stripped):
+            return f'_{stripped}'
+        return stripped
+
     def node_visitor(node: DepGraphNode):
         if cache.is_component(node.name):
-            libs = [strip_library_name(out.name) for out in node.out_refs]
-            deps = {strip_library_name(t.name) for lib_node in node.out_refs for t in lib_node.out_refs }
+            libs = cache.get_component_libraries(node.name)
+            deps = {patch_lib_name(lib_node.name) for lib_node in node.out_refs}
             deps = deps.difference(libs)
-            print_component_cpp_info(node.name, libs, deps)
+            print_component_cpp_info(node.name, libs, deps, indent=indentation)
         else:
             lib = cache.get_library(node.name)
-            component_name = lib.name if not cache.is_package(lib.name) else f'_{lib.name}'
-            deps = [strip_library_name(out.name) for out in node.out_refs]
-            print_component_cpp_info(component_name, [lib.name], deps)
+            component_name = patch_lib_name(lib.name)
+            deps = {patch_lib_name(out.name) for out in node.out_refs}
+            print_component_cpp_info(component_name, [lib.name], deps, indent=indentation)
 
-    print('def package_info(self):')
+    print('from conan import ConanFile')
+    print('class Template(ConanFile):')
+    print('{0}def package_info(self):'.format(indentation))
     graph.traverse(node_visitor)
 
 
@@ -222,6 +248,8 @@ def cmd_define_component(cache: Cache, args: argparse.Namespace):
 
 def cmd_print_graph(cache: Cache, args: argparse.Namespace):
     graph = create_libs_graph(cache, args.libs)
+    if args.show_components:
+        replace_libs_with_components(cache, graph)
     print(graph.to_dot())
 
 
@@ -282,12 +310,14 @@ def main_cli():
 
     graph = subparsers.add_parser('graph', parents=[print_args],
                                    help='print the dependencies graph of a set of libraries') 
-    graph.add_argument('libs', nargs='+', help='library, component or package names')
+    graph.add_argument('libs', nargs='+', help='libraries')
+    graph.add_argument('--show-components', action='store_true')
     graph.set_defaults(func=cmd_print_graph)
 
     cpp_info = subparsers.add_parser('cppinfo', parents=[print_args])
     cpp_info.add_argument('items', nargs='+')
     cpp_info.add_argument('--minimize', action='store_true')
+    cpp_info.add_argument('--indent', default=0, type=int)
     cpp_info.set_defaults(func=cmd_print_cpp_info)
 
     args = parser.parse_args()

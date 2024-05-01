@@ -63,6 +63,18 @@ def test_create_graph():
     assert graph.keys == {'lib1.so', 'lib2.so', 'lib3.so', 'lib4.so', 'lib5.so'}
 
 
+def test_create_graph_with_non_libraries():
+    cache = Cache()
+    add_libraries(cache, ['lib1.so', 'lib2.so', 'lib3.so', 'lib4.so'])
+    cache.add_dependency('lib1.so', 'lib2.so')
+    cache.add_dependency('lib1.so', 'lib3.so')
+    cache.add_dependency('lib2.so', 'lib4.so')
+    cache.set_component_libraries('comp', ['lib3.so', 'lib4.so'])
+
+    with pytest.raises(Exception):
+        ut.create_libs_graph(cache, ['lib1.so', 'comp'])
+
+
 def node_children(graph: DepGraph, id: str):
     return {n.name for n in graph.get_node(id).out_refs}
 
@@ -84,18 +96,15 @@ def test_create_graph_with_components():
     cache.add_dependency('lib4.so', 'lib6.so')
     cache.set_component_libraries('comp', ['lib3.so', 'lib4.so'])
 
-    graph = ut.create_libs_graph(cache, ['lib1.so', 'comp'])
+    graph = ut.create_libs_graph(cache, ['lib1.so'])
+    ut.replace_libs_with_components(cache, graph)
     print(graph.to_dot())
 
-    assert 'comp' in graph.keys
+    assert set(graph.keys) == {'comp', 'lib1.so', 'lib2.so', 'lib5.so', 'lib6.so'}
 
-    assert node_children(graph, 'comp') == {'lib3.so', 'lib4.so'}
-    
-    lib1_targets = {n.name for n in graph.get_node('lib1.so').out_refs}
-    assert lib1_targets == {'lib2.so', 'comp'}
-
-    lib2_targets = {n.name for n in graph.get_node('lib2.so').out_refs}
-    assert lib2_targets == set()
+    assert node_children(graph, 'comp') == {'lib5.so', 'lib6.so'}
+    assert node_children(graph, 'lib1.so') == {'lib2.so', 'comp'}
+    assert node_children(graph, 'lib2.so') == set()
 
 
 def test_create_graph_with_more_components():
@@ -122,20 +131,18 @@ def test_create_graph_with_more_components():
     cache.set_component_libraries('comp56', ['lib5.so', 'lib6.so'])
     cache.set_component_libraries('comp7', ['lib7.so'])
 
-    graph = ut.create_libs_graph(cache, ['comp34', 'lib1.so', 'comp56'])
+    graph = ut.create_libs_graph(cache, ['lib1.so'])
+    ut.replace_libs_with_components(cache, graph)
     print(graph.to_dot())
 
-    comp34_targets = {n.name for n in graph.get_node('comp34').out_refs}
-    assert comp34_targets == {'lib3.so', 'lib4.so'}
+    assert set(graph.keys) == {'comp34', 'comp56', 'comp7', 'lib1.so', 'lib2.so', 'lib8.so'}
 
-    comp56_targets = {n.name for n in graph.get_node('comp56').out_refs}
-    assert comp56_targets == {'lib5.so', 'lib6.so'}
-
-    lib3_targets = {n.name for n in graph.get_node('lib3.so').out_refs}
-    assert lib3_targets == {'comp56'}
-
-    lib4_targets = {n.name for n in graph.get_node('lib4.so').out_refs}
-    assert lib4_targets == {'comp56', 'comp7'}
+    assert node_children(graph, 'lib1.so') == {'lib2.so', 'comp34'}
+    assert node_children(graph, 'comp34') == {'comp56', 'comp7'}
+    assert node_children(graph, 'comp56') == {'lib8.so'}
+    assert node_children(graph, 'lib2.so') == set()
+    assert node_children(graph, 'lib8.so') == set()
+    assert node_children(graph, 'comp7') == set()
 
 
 @pytest.mark.timeout(5)
@@ -158,15 +165,14 @@ def test_create_graph_with_components_with_internal_dependencies():
     cache.set_component_libraries('compx', ['lib2.so', 'lib3.so', 'lib5.so'])
 
     graph = ut.create_libs_graph(cache, ['lib1.so'])
+    ut.replace_libs_with_components(cache, graph)
     print(graph.to_dot())
 
+    assert set(graph.keys) == {'compx', 'lib1.so', 'lib4.so', 'lib6.so'}
     assert node_children(graph, 'lib1.so') == {'compx', 'lib4.so'}
     assert node_children(graph, 'lib4.so') == {'compx'}
-    assert node_children(graph, 'compx') == {'lib2.so', 'lib3.so', 'lib5.so'}
-    assert node_children(graph, 'lib3.so') == set()
-    assert node_children(graph, 'lib5.so') == {'lib6.so'}
+    assert node_children(graph, 'compx') == {'lib6.so'}
     assert node_children(graph, 'lib6.so') == set()
-    assert node_children(graph, 'lib2.so') == {'lib5.so'}
 
 
 def test_sort_libraries():

@@ -71,6 +71,14 @@ class DepGraph:
             self._nodes[lib] = node
         return node
     
+    def remove_node(self, name: str):
+        node = self._nodes.pop(name, None)
+        if node:
+            for child in list(node.out_refs):
+                child.remove_in_ref(node)
+            for parent in list(node.in_refs):
+                node.remove_in_ref(parent)
+    
     def add_dependency(self, src: str, tgt: str):
         src_node = self.get_node(src)
         tgt_node = self.get_node(tgt)

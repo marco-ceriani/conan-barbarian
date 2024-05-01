@@ -74,7 +74,7 @@ class Cache:
         return [lib.filename for lib in self.libraries.values()]
 
     def is_library(self, library: str):
-        return library in self.libraries
+        return strip_library_name(library) in self.libraries
     
     def get_library(self, library: str):
         lib_name = strip_library_name(library)
@@ -141,7 +141,7 @@ class Cache:
         return component in self.components
 
     def get_component_libraries(self, component: str):
-        return self.components.get(component, [])
+        return self.components.get(component, set())
     
     def set_component_libraries(self, component: str, libraries: list[str]):
         self.components[component] = set(libraries)
