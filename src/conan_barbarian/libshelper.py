@@ -95,7 +95,7 @@ def minimize_dependencies_list(cache: Cache, libs: list[str]):
         for d in deps:
             try:
                 result.remove(d)
-            except ValueError:
+            except (ValueError, KeyError):
                 pass
     return result
 
@@ -109,9 +109,13 @@ def cmd_analyze_libs(cache: Cache, args: argparse.Namespace):
 
     def check_and_analyze(lib: Path, cache: Cache, args: argparse.Namespace):
         lib_name = lib.name
-        if not cache.is_library(lib_name):
-            print(f'analyzing {lib}')
-            analyze_library(lib, cache, package=args.package, system=args.system)
+        if cache.is_library(lib_name):
+            if args.force:
+                cache.remove_library(lib_name)
+            else:
+                return
+        print(f'analyzing {lib}')
+        analyze_library(lib, cache, package=args.package, system=args.system)
 
     for lib in args.libs:
         path = Path(lib)
@@ -299,6 +303,7 @@ def main_cli():
                                             help='analyzes a list of libraries')
     parser_analyze.add_argument('libs', nargs='+', help='paths to libraries or folders')
     parser_analyze.add_argument('--system', action='store_true')
+    parser_analyze.add_argument('--force', action='store_true', help='reanalyze existing libraries')
     parser_analyze.add_argument('--package', help='add the libraries to a logical package')
     parser_analyze.set_defaults(func=cmd_analyze_libs)
 

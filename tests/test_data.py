@@ -162,6 +162,19 @@ def test_cache_io(tmp_path):
     assert lib2.system == True
 
 
+def test_removing_libraries():
+    cache = Cache()
+    cache.add_library('libfoo.so')
+    cache.add_library('libbar.so')
+    cache.add_library('liblol.a')
+
+    cache.remove_library('libfoo.so')
+    assert set(cache.all_library_files()) == {'libbar.so', 'liblol.a'}
+
+    cache.remove_library('bar')
+    assert set(cache.all_library_files()) == {'liblol.a'}
+
+
 ### Symbols Management
 
 
@@ -208,3 +221,22 @@ def test_find_undefined_symbo():
 
     assert depending == {'libdance.a'}
 
+
+def test_removing_libraries_and_symbols():
+    cache = Cache()
+    cache.add_library('libdance.so')
+    cache.add_library('librap.so')
+
+    cache.define_symbol('rap::flow', 'librap.so')
+    cache.add_undefined_symbol_dependency('std::string', 'librap.so')
+    cache.add_undefined_symbol_dependency('sing::belt()', 'librap.so')
+    cache.define_symbol('dance::foo_bar()', 'libdance.so')
+    cache.define_symbol('dance::jam()', 'libdance.so')
+    cache.add_undefined_symbol_dependency('sing::belt()', 'libdance.so')
+    cache.add_undefined_symbol_dependency('std::map', 'libdance.so')
+
+    cache.remove_library('libdance.so')
+    assert set(cache.defined_symbols.keys()) == { 'rap::flow' }
+    assert set(cache.undefined_symbols.keys()) == { 'std::string', 'sing::belt()' }
+    assert cache.undefined_symbols['sing::belt()'] == { 'librap.so' }
+    assert cache.undefined_symbols['std::string'] == { 'librap.so' }

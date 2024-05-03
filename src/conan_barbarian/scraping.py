@@ -30,7 +30,7 @@ def _parse_nm_output(nm_output: str):
             # we just ignore versioned symbols (e.g. func@@GLIB)
             symbol = GLIB_REGEX.sub('', symbol)
             # (T)text, (R)read-only, (W)weak, (B)bss area
-            if stype in ['T', 'R', 'W', 'B']:
+            if stype in ['T', 'R', 'W', 'B', 'D']:
                 defined_symbols.append(symbol)
             elif stype == 'U':  # (U)undefined
                 undefined_symbols.append(symbol)

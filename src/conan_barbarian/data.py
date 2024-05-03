@@ -94,6 +94,23 @@ class Cache:
         if package:
             self.packages.setdefault(package, set()).add(lib.name)
 
+    def remove_library(self, library: str):
+        lib = self.libraries.pop(strip_library_name(library), None)
+        if not lib:
+            return
+        self.defined_symbols = {key:val for key, val in self.defined_symbols.items() if val != lib.filename}
+
+        unneeded_symbols = []
+        for key, val in self.undefined_symbols.items():
+            try:
+                val.remove(lib.filename)
+                if len(val) == 0:
+                    unneeded_symbols.append(key)
+            except KeyError:
+                pass
+        for symbol in unneeded_symbols:
+            del self.undefined_symbols[symbol]
+
     def add_dependency(self, src, tgt):
         src_name = strip_library_name(src)
         if src != tgt:
