@@ -123,8 +123,14 @@ class DepGraph:
         text = io.StringIO()
         text.write('digraph {\n')
         for node in self.nodes:
-            if node.data.get('component', False):
-                text.write(f'  {node.name} [shape=box];\n')
+            if len(node.data) > 0:
+                format = []
+                if (shape := node.data.get('shape', None)):
+                    format.append(f'shape={shape}')
+                if (color := node.data.get('color', None)):
+                    format.extend(['style=filled', f'fillcolor="{color}"'])
+                format = ', '.join(format)
+                text.write(f'  "{node.name}" [{format}];\n')
         for node in self.nodes:
             for child in node.out_refs:
                 text.write(f'  "{node.name}" -> "{child.name}";\n')

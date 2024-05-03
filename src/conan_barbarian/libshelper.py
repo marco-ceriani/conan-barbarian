@@ -260,6 +260,12 @@ def cmd_print_graph(cache: Cache, args: argparse.Namespace):
     graph = create_libs_graph(cache, args.libs)
     if args.show_components:
         replace_libs_with_components(cache, graph)
+    for node in graph.nodes:
+        if cache.is_component(node.name):
+            node.data['shape'] = 'component'
+            node.data['color'] = '#cbffc0'
+        elif (lib := cache.get_library(node.name)) and lib.system:
+            node.data['color'] = '#c5c0ff'
     print(graph.to_dot())
 
 
