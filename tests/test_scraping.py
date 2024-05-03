@@ -1,5 +1,6 @@
 from conan_barbarian.data import Cache
-from conan_barbarian.scraping import _parse_nm_output, _update_cache
+from conan_barbarian.scraping import _parse_nm_output, _parse_link_script, _update_cache
+from pathlib import Path
 
 
 def test_parse_nm():
@@ -26,6 +27,23 @@ def test_parse_nm_strange_case_ut():
     defined, undefined = _parse_nm_output(dump)
     assert defined == ['ns1::ns2::ClaZz::a_magic_methodr() const']
     assert undefined == []
+
+
+def test_parse_ld_script(tmpdir):
+    script = """
+/* GNU ld script
+comment here GROUP ( /lib64/libsurprise.so )
+comment end */
+OUTPUT_FORMAT(elf64-x86-64)
+INPUT ( /lib64/libpthread.so )
+GROUP ( /lib64/libm.so.6  AS_NEEDED ( /lib64/libmvec.so.1 ) )
+"""
+    script_path = Path(tmpdir, 'script.so')
+    with script_path.open('w') as f:
+        f.write(script)
+
+    libs = _parse_link_script(script_path)
+    assert set(libs) == {'/lib64/libm.so.6', '/lib64/libpthread.so'}
 
 
 def test_update_cache_first_lib():

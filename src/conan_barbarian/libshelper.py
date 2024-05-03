@@ -3,13 +3,13 @@
 from os import replace
 import re
 import sys
-from pathlib import Path, PurePath
+from pathlib import Path
 import argparse
 import logging
 import fnmatch
 from collections.abc import Collection
 
-from conan_barbarian.data import Cache
+from conan_barbarian.data import Cache, strip_library_name
 from conan_barbarian.graphs import DepGraph, DepGraphNode, prune_arcs, sort_graph
 from conan_barbarian.scraping import analyze_library
 
@@ -27,7 +27,7 @@ def filter_libraries(cache: Cache, libs: list[str]):
     return patched_names
 
 
-def create_libs_graph(cache: Cache, roots: list[str]):
+def create_libs_graph(cache: Cache, roots: Collection[str]):
     """
     Creates a graph with the input libraries and all their dependencies.
     """
@@ -64,7 +64,7 @@ def replace_libs_with_components(cache: Cache, graph: DepGraph):
             graph.remove_node(node.name)
 
 
-def sort_by_dependency(cache: Cache, libs: list[str]):
+def sort_by_dependency(cache: Cache, libs: Collection[str]):
     graph = create_libs_graph(cache, libs)
     return sort_graph(graph)
 
@@ -74,8 +74,6 @@ def quote_lib_name(name: str, args: argparse.Namespace):
         return args.quote + name + args.quote
     return name
 
-def strip_library_name(name):
-    return PurePath(name).stem.removeprefix('lib')
 
 def format_lib(name: str, args: argparse.Namespace):
     if isinstance(name, (list, set)):
@@ -110,11 +108,11 @@ def cmd_analyze_libs(cache: Cache, args: argparse.Namespace):
         lib_name = lib.name
         if not cache.is_library(lib_name):
             print(f'analyzing {lib}')
-            analyze_library(lib, cache, package=args.package)
+            analyze_library(lib, cache, package=args.package, system=args.system)
 
     for lib in args.libs:
         path = Path(lib)
-        if path.is_file():
+        if path.resolve().is_file():
             check_and_analyze(path, cache, args)
         elif path.is_dir():
             for child in path.glob(r'**/*'):
@@ -162,9 +160,16 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
             print(f"- {lib}: " + ", ".join(format_lib(deps, args)))
 
 
-def print_component_cpp_info(component: str, libs: Collection[str], dependencies: Collection[str], *, indent='\t'):
+def print_component_cpp_info(component: str,
+                             libs: Collection[str],
+                             dependencies: Collection[str], 
+                             system_libs: Collection[str],
+                             *, indent='\t'):
     lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in libs])
     print(f'{indent}{indent}self.cpp_info.components["{component}"].libs = [{lib_names}]')
+    if system_libs:
+        system_lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in system_libs])
+        print(f'{indent}{indent}self.cpp_info.components["{component}"].system_libs = [{system_lib_names}]')
     if len(dependencies) > 0:
         print(f'{indent}{indent}self.cpp_info.components["{component}"].requires.extend([')
         for dep in dependencies:
@@ -215,15 +220,20 @@ def cmd_print_cpp_info(cache: Cache, args: argparse.Namespace):
 
     def node_visitor(node: DepGraphNode):
         if cache.is_component(node.name):
-            libs = cache.get_component_libraries(node.name)
+            libs = sort_by_dependency(cache, cache.get_component_libraries(node.name))
             deps = {patch_lib_name(lib_node.name) for lib_node in node.out_refs}
             deps = deps.difference(libs)
-            print_component_cpp_info(node.name, libs, deps, indent=indentation)
-        else:
+            system_libs = cache.filter_system_libraries(deps, True)
+            deps = cache.filter_system_libraries(deps, False)
+            print_component_cpp_info(node.name, libs, deps, system_libs, indent=indentation)
+        elif not cache.get_library(node.name).system:
             lib = cache.get_library(node.name)
             component_name = patch_lib_name(lib.name)
             deps = {patch_lib_name(out.name) for out in node.out_refs}
-            print_component_cpp_info(component_name, [lib.name], deps, indent=indentation)
+            system_libs = cache.filter_system_libraries(deps, True)
+            deps = cache.filter_system_libraries(deps, False)
+            logger.debug('comp %s deps %s sys %s', component_name, ','.join(deps), ','.join(system_libs))
+            print_component_cpp_info(component_name, [lib.name], deps, system_libs, indent=indentation)
 
     print('from conan import ConanFile')
     print('class Template(ConanFile):')
@@ -261,7 +271,7 @@ def configure_logging(args: argparse.Namespace):
         level = logging.DEBUG
 
     logging.basicConfig(
-        format='%(levelname)s: %(message)s',
+        format='%(levelname)s %(module)s: %(message)s',
         level=level
     )
 
@@ -269,7 +279,7 @@ def configure_logging(args: argparse.Namespace):
 def main_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument('project', help='project_file')
-    subparsers = parser.add_subparsers(title='commands', required=True)
+    subparsers = parser.add_subparsers(title='commands', description='The following commands are available:', required=True)
 
     print_args = argparse.ArgumentParser(add_help=False)
     print_args.add_argument('-v', '--verbose', action='count', default=0)

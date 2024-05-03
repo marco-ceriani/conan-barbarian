@@ -40,6 +40,15 @@ def test_adding_system_libraries():
     assert not cache.get_library('boost_regex').system
 
 
+def test_filter_system_libraries():
+    cache = Cache()
+    cache.add_library('libssl.so', system=True)
+    cache.add_library('libboost_regex.so')
+
+    assert ['libssl.so'] == cache.filter_system_libraries(['libssl.so', 'libboost_regex.so'], True)
+    assert ['libboost_regex.so'] == cache.filter_system_libraries(['libssl.so', 'libboost_regex.so'], False)
+
+
 def test_find_library():
     cache = Cache()
     cache.add_library('libssl.so')

@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from pathlib import PurePath, Path
 import json
 from typing import Optional
@@ -156,6 +157,9 @@ class Cache:
         for comp, libs in self.components.items():
             for lib in libs:
                 self._libs2components[strip_library_name(lib)] = comp
+
+    def filter_system_libraries(self, libs: Collection[str], system: bool):
+        return [name for name in libs if (lib := self.get_library(name)) and lib.system == system]
 
 
     def to_json(self):

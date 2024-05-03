@@ -101,8 +101,8 @@ class DepGraph:
             roots.sort(key=lambda n : n.name)
             next_roots = []
             for node in roots:
-                node_visitor(node)
                 logger.debug('processing node %s', node)
+                node_visitor(node)
                 node_children: set[DepGraphNode] = node.out_refs.copy()
                 for target in node_children:
                     num_visits = visit_count.get(target.name, 0) + 1
