@@ -64,9 +64,12 @@ def replace_libs_with_components(cache: Cache, graph: DepGraph):
             graph.remove_node(node.name)
 
 
-def sort_by_dependency(cache: Cache, libs: Collection[str]):
+def sort_by_dependency(cache: Cache, libs: Collection[str], add_dependencies=False):
     graph = create_libs_graph(cache, libs)
-    return sort_graph(graph)
+    sorted_dependencies = sort_graph(graph)
+    if not add_dependencies:
+        return [lib for lib in sorted_dependencies if lib in libs]
+    return sorted_dependencies
 
 
 def quote_lib_name(name: str, args: argparse.Namespace):
@@ -123,7 +126,7 @@ def cmd_analyze_libs(cache: Cache, args: argparse.Namespace):
 
 def cmd_sort_libs(cache: Cache, args: argparse.Namespace):
     patched_names = filter_libraries(cache, args.libs)
-    order = sort_by_dependency(cache, patched_names)
+    order = sort_by_dependency(cache, patched_names, add_dependencies=args.with_dependencies)
     order = format_lib(order, args)
 
     list_separator = bytes(args.sep, 'utf-8').decode('unicode_escape')
@@ -150,7 +153,7 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
         if args.minimize:
             deps = minimize_dependencies_list(cache, deps)
         elif args.recursive:
-            deps = sort_by_dependency(cache, deps)
+            deps = sort_by_dependency(cache, deps, add_dependencies=True)
         if args.sort:
             deps = sorted(deps)
 
@@ -302,6 +305,7 @@ def main_cli():
     parser_sort = subparsers.add_parser('sort', parents=[print_args],
                                          help='sort a list of libraries according to dependency relations') 
     parser_sort.add_argument('libs', nargs='+')
+    parser_sort.add_argument('--with-dependencies', action='store_true')
     parser_sort.add_argument('--sep', default=', ', help='list separator')
     parser_sort.set_defaults(func=cmd_sort_libs)
 

@@ -184,9 +184,9 @@ def test_sort_libraries():
     res = ut.sort_by_dependency(cache, ['bird', 'cat', 'dog'])
     assert res == ['dog', 'cat', 'bird']
 
-    assert ut.sort_by_dependency(cache, ['bird', 'dog']) == ['dog', 'cat', 'bird']
+    assert ut.sort_by_dependency(cache, ['bird', 'dog'], add_dependencies=True) == ['dog', 'cat', 'bird']
 
-    assert ut.sort_by_dependency(cache, ['bird', 'cat']) == ['cat', 'bird']
+    assert ut.sort_by_dependency(cache, ['bird', 'cat'], add_dependencies=True) == ['cat', 'bird']
 
 
 def test_minimize_deps_list():
