@@ -176,7 +176,10 @@ class Cache:
                 self._libs2components[strip_library_name(lib)] = comp
 
     def filter_system_libraries(self, libs: Collection[str], system: bool):
-        return [name for name in libs if (lib := self.get_library(name)) and lib.system == system]
+        def is_system_library(name):
+            lib = self.get_library(name)
+            return lib is not None and lib.system
+        return [name for name in libs if is_system_library(name) == system]
 
 
     def to_json(self):

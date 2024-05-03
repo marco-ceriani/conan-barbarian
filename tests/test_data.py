@@ -49,6 +49,16 @@ def test_filter_system_libraries():
     assert ['libboost_regex.so'] == cache.filter_system_libraries(['libssl.so', 'libboost_regex.so'], False)
 
 
+def test_filter_system_libraries_with_components():
+    cache = Cache()
+    cache.add_library('libssl.so', system=True)
+    cache.add_library('libboost_regex.so')
+    cache.set_component_libraries('random', ['librandom.so', 'lib42.so'])
+
+    assert cache.filter_system_libraries(['libssl.so', 'random'], True) == ['libssl.so']
+    assert cache.filter_system_libraries(['libssl.so', 'libboost_regex.so', 'random'], False) == ['libboost_regex.so', 'random']
+
+
 def test_find_library():
     cache = Cache()
     cache.add_library('libssl.so')
