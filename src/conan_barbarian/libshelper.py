@@ -341,10 +341,10 @@ def main_cli():
     graph.add_argument('--show-components', action='store_true')
     graph.set_defaults(func=cmd_print_graph)
 
-    cpp_info = subparsers.add_parser('cppinfo', parents=[print_args])
-    cpp_info.add_argument('items', nargs='+')
-    cpp_info.add_argument('--minimize', action='store_true')
-    cpp_info.add_argument('--indent', default=0, type=int)
+    cpp_info = subparsers.add_parser('cppinfo', help="generates a conan package_info function")
+    cpp_info.add_argument('items', nargs='+', help="top libraries to be included, along with their dependencies")
+    cpp_info.add_argument('--minimize', action='store_true', help="reduces the number of direct dependencies, removing those already required indirectly")
+    cpp_info.add_argument('--indent', default=0, type=int, help="number of spaces to be used for intendation, by default tabs are used")
     cpp_info.set_defaults(func=cmd_print_cpp_info)
 
     args = parser.parse_args()
