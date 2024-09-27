@@ -55,11 +55,31 @@ def test_update_cache_first_lib():
     _update_cache(cache, 'libfoo.so', [s1, s2], [u1])
 
     assert cache.all_library_files() == ['libfoo.so']
-    assert cache.defined_symbols.keys() == {s1, s2}
-    assert cache.undefined_symbols.keys() == {u1}
-    assert cache.defined_symbols[s1] == 'libfoo.so'
-    assert cache.defined_symbols[s2] == 'libfoo.so'
-    assert cache.undefined_symbols[u1] == {'libfoo.so'}
+    assert cache.defined_symbols == {s1, s2}
+    assert cache.undefined_symbols == {u1}
+    assert cache.get_library_defining_symbol(s1) == 'libfoo.so'
+    assert cache.get_library_defining_symbol(s2) == 'libfoo.so'
+    assert cache.libraries_needing_undefined_symbol(u1) == {'libfoo.so'}
+
+
+def test_update_cache_libs_in_order():
+    s1 = "func1(int, int)"
+    s2 = "func2(unsigned int)"
+    s3 = 'my_func()'
+
+    cache = Cache()
+    _update_cache(cache, 'librabbit.so', [s1], [])
+    _update_cache(cache, 'libbird.so', [s2], [s1])
+    _update_cache(cache, 'libwolf.so', [s3], [s2])
+
+    assert cache.all_library_files() == ['librabbit.so', 'libbird.so', 'libwolf.so']
+    assert cache.defined_symbols == {s1, s2, s3}
+    assert cache.undefined_symbols == set()
+    assert cache.get_library_defining_symbol(s1) == 'librabbit.so'
+    assert cache.get_library_defining_symbol(s2) == 'libbird.so'
+    assert cache.get_library_defining_symbol(s3) == 'libwolf.so'
+    assert set(cache.get_library('bird').dependencies) == { 'librabbit.so' }
+    assert set(cache.get_library('wolf').dependencies) == { 'libbird.so' }
 
 
 def test_update_cache_find_deps():
@@ -72,10 +92,10 @@ def test_update_cache_find_deps():
     _update_cache(cache, 'libtortoise.so', [s2, s3], [])
 
     assert set(cache.all_library_files()) == {'librabbit.so', 'libtortoise.so'}
-    assert cache.defined_symbols.keys() == {s1, s2, s3}
-    assert cache.undefined_symbols.keys() == set()
-    assert cache.defined_symbols[s1] == 'librabbit.so'
-    assert cache.defined_symbols[s2] == 'libtortoise.so'
-    assert cache.defined_symbols[s3] == 'libtortoise.so'
+    assert cache.defined_symbols == {s1, s2, s3}
+    assert cache.undefined_symbols == set()
+    assert cache.get_library_defining_symbol(s1) == 'librabbit.so'
+    assert cache.get_library_defining_symbol(s2) == 'libtortoise.so'
+    assert cache.get_library_defining_symbol(s3) == 'libtortoise.so'
     assert cache.get_library('librabbit.so').dependencies == {'libtortoise.so'}
 

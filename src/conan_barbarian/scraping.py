@@ -1,5 +1,5 @@
 """
-Functions to analyze static and dynamic libraries to identify dependencies.
+Functions to analyze static and dynamic libraries and extract the symbols they define and use.
 """
 
 from pathlib import Path
@@ -77,15 +77,6 @@ def _update_cache(cache: Cache, libname: str, defined: list[str], undefined: lis
             cache.add_dependency(libname, definer)
         else:
             cache.add_undefined_symbol_dependency(symbol, libname)
-
-
-def analyze_library_symbols(library_path: Path, dynamic: bool):
-    if dynamic:
-        cmd = ['nm', '-C', '-D', str(library_path)]
-    else:
-        cmd = ['nm', '-C', str(library_path)]   
-    cp = subprocess.run(cmd, capture_output=True, text=True)
-    return _parse_nm_output(cp.stdout)   
 
 
 def _search_symbols_in_library(path: Path):

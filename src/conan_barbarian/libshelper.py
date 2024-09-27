@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-from os import replace
-import re
 import sys
 from pathlib import Path
 import argparse
@@ -100,6 +98,83 @@ def minimize_dependencies_list(cache: Cache, libs: list[str]):
     return result
 
 
+def print_component_cpp_info(component: str,
+                             libs: Collection[str],
+                             dependencies: Collection[str], 
+                             system_libs: Collection[str],
+                             *, indent='\t'):
+    lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in libs])
+    print(f'{indent}{indent}self.cpp_info.components["{component}"].libs = [{lib_names}]')
+    if system_libs:
+        system_lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in system_libs])
+        print(f'{indent}{indent}self.cpp_info.components["{component}"].system_libs = [{system_lib_names}]')
+    if len(dependencies) > 0:
+        print(f'{indent}{indent}self.cpp_info.components["{component}"].requires.extend([')
+        for dep in dependencies:
+            print(f'{indent}{indent}{indent}"{dep}",')
+        print(f'{indent}{indent}])')
+    print()
+
+
+def expand_args_to_libraries(cache: Cache, items: list[str]):
+    libraries = set()
+    for item in items:
+        if cache.is_package(item):
+            libraries.update(cache.package_libraries(item))
+        elif cache.is_component(item):
+            libraries.update(cache.get_component_libraries(item))
+        else:
+            libraries.add(item)
+    return libraries
+
+
+class PackagePrinter:
+    def print_header(self):
+        """Prints the package header"""
+        pass
+
+    def print_component(self, component: str, libs: Collection[str], dependencies: Collection[str],  system_libs: Collection[str]):
+        """Prints libraries and dependencies of a single component/library"""
+        pass
+
+
+def generate_conan_package_info_function(cache: Cache, items: list[str], minimize: bool, indentation: str):
+    libraries = expand_args_to_libraries(cache, items)
+    graph = create_libs_graph(cache, libraries)
+
+    replace_libs_with_components(cache, graph)
+    if minimize:
+        graph = prune_arcs(graph)
+
+    def patch_lib_name(name):
+        stripped = strip_library_name(name)
+        if cache.is_package(stripped):
+            return f'_{stripped}'
+        return stripped
+
+    def node_visitor(node: DepGraphNode):
+        if cache.is_component(node.name):
+            libs = sort_by_dependency(cache, cache.get_component_libraries(node.name))
+            deps = {patch_lib_name(lib_node.name) for lib_node in node.out_refs}
+            deps = deps.difference(libs)
+            system_libs = cache.filter_system_libraries(deps, True)
+            deps = cache.filter_system_libraries(deps, False)
+            print_component_cpp_info(node.name, libs, deps, system_libs, indent=indentation)
+        elif not cache.get_library(node.name).system:
+            lib = cache.get_library(node.name)
+            component_name = patch_lib_name(lib.name)
+            deps = {patch_lib_name(out.name) for out in node.out_refs}
+            system_libs = cache.filter_system_libraries(deps, True)
+            deps = cache.filter_system_libraries(deps, False)
+            logger.debug('comp %s deps %s sys %s', component_name, ','.join(deps), ','.join(system_libs))
+            print_component_cpp_info(component_name, [lib.name], deps, system_libs, indent=indentation)
+
+    print('from conan import ConanFile')
+    print('class Template(ConanFile):')
+    print('{0}def package_info(self):'.format(indentation))
+    graph.traverse(node_visitor)
+
+
 ###############################################################################
 #  CLI Commands
 ###############################################################################
@@ -167,85 +242,12 @@ def cmd_find_dependencies(cache: Cache, args: argparse.Namespace):
             print(f"- {lib}: " + ", ".join(format_lib(deps, args)))
 
 
-def print_component_cpp_info(component: str,
-                             libs: Collection[str],
-                             dependencies: Collection[str], 
-                             system_libs: Collection[str],
-                             *, indent='\t'):
-    lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in libs])
-    print(f'{indent}{indent}self.cpp_info.components["{component}"].libs = [{lib_names}]')
-    if system_libs:
-        system_lib_names = ', '.join([f'"{strip_library_name(l)}"' for l in system_libs])
-        print(f'{indent}{indent}self.cpp_info.components["{component}"].system_libs = [{system_lib_names}]')
-    if len(dependencies) > 0:
-        print(f'{indent}{indent}self.cpp_info.components["{component}"].requires.extend([')
-        for dep in dependencies:
-            print(f'{indent}{indent}{indent}"{dep}",')
-        print(f'{indent}{indent}])')
-    print()
-
-
-def expand_args_to_libraries(cache: Cache, items: list[str]):
-    libraries = set()
-    for item in items:
-        if cache.is_package(item):
-            libraries.update(cache.package_libraries(item))
-        elif cache.is_component(item):
-            libraries.update(cache.get_component_libraries(item))
-        else:
-            libraries.add(item)
-    return libraries
-
-
-class ComponentInfo:
-    __slots__ = ("libs", "deps")
-    libs: set[str]
-    deps: set[str]
-
-    def __init__(self, libs=set(), deps=set()):
-        self.libs = libs
-        self.deps = deps
-
-
 def cmd_print_cpp_info(cache: Cache, args: argparse.Namespace):
-    libraries = expand_args_to_libraries(cache, args.items)
-    graph = create_libs_graph(cache, libraries)
-
     indentation = '\t'
     if args.indent > 0:
         indentation = ''.join([' ' for x in range(args.indent)])
 
-    replace_libs_with_components(cache, graph)
-    if args.minimize:
-        graph = prune_arcs(graph)
-
-    def patch_lib_name(name):
-        stripped = strip_library_name(name)
-        if cache.is_package(stripped):
-            return f'_{stripped}'
-        return stripped
-
-    def node_visitor(node: DepGraphNode):
-        if cache.is_component(node.name):
-            libs = sort_by_dependency(cache, cache.get_component_libraries(node.name))
-            deps = {patch_lib_name(lib_node.name) for lib_node in node.out_refs}
-            deps = deps.difference(libs)
-            system_libs = cache.filter_system_libraries(deps, True)
-            deps = cache.filter_system_libraries(deps, False)
-            print_component_cpp_info(node.name, libs, deps, system_libs, indent=indentation)
-        elif not cache.get_library(node.name).system:
-            lib = cache.get_library(node.name)
-            component_name = patch_lib_name(lib.name)
-            deps = {patch_lib_name(out.name) for out in node.out_refs}
-            system_libs = cache.filter_system_libraries(deps, True)
-            deps = cache.filter_system_libraries(deps, False)
-            logger.debug('comp %s deps %s sys %s', component_name, ','.join(deps), ','.join(system_libs))
-            print_component_cpp_info(component_name, [lib.name], deps, system_libs, indent=indentation)
-
-    print('from conan import ConanFile')
-    print('class Template(ConanFile):')
-    print('{0}def package_info(self):'.format(indentation))
-    graph.traverse(node_visitor)
+    return generate_conan_package_info_function(cache, args.items, args.minimize, indentation)
 
 
 def cmd_define_component(cache: Cache, args: argparse.Namespace):

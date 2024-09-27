@@ -246,7 +246,7 @@ def test_removing_libraries_and_symbols():
     cache.add_undefined_symbol_dependency('std::map', 'libdance.so')
 
     cache.remove_library('libdance.so')
-    assert set(cache.defined_symbols.keys()) == { 'rap::flow' }
-    assert set(cache.undefined_symbols.keys()) == { 'std::string', 'sing::belt()' }
-    assert cache.undefined_symbols['sing::belt()'] == { 'librap.so' }
-    assert cache.undefined_symbols['std::string'] == { 'librap.so' }
+    assert set(cache.defined_symbols) == { 'rap::flow' }
+    assert set(cache.undefined_symbols) == { 'std::string', 'sing::belt()' }
+    assert cache.libraries_needing_undefined_symbol('sing::belt()') == { 'librap.so' }
+    assert cache.libraries_needing_undefined_symbol('std::string') == { 'librap.so' }

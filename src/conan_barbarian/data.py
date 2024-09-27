@@ -1,9 +1,15 @@
+"""
+Data strctures to keep information about libraries, the symbols they define and their dependencies.
+"""
+
 from collections.abc import Collection
 from pathlib import PurePath, Path
 import json
 from typing import Optional
 
 class Library:
+    __slots__ = ("name", "filename", "system", "package", "_dependencies")
+
     name: str
     filename: str
     system: bool
@@ -50,36 +56,35 @@ class Library:
     
 
 class Cache:
-    filepath: Optional[Path]
-    libraries: dict[str, Library]
-    dependencies: dict[str, set[str]]
-    defined_symbols: dict[str, str]
-    undefined_symbols: dict[str, set[str]]
-    packages: dict[str, set[str]]
-    components: dict[str, set[str]]
+    _filepath: Optional[Path]
+    _libraries: dict[str, Library]
+    _defined_symbols: dict[str, str]
+    _undefined_symbols: dict[str, set[str]]
+    _packages: dict[str, set[str]]
+    _components: dict[str, set[str]]
     _libs2components: dict[str, str]
 
     def __init__(self, path: Optional[Path] = None):
-        self.filepath = path
-        self.libraries = {}
-        self.defined_symbols = {}
-        self.undefined_symbols = {}
-        self.packages = {}
-        self.components = {}
+        self._filepath = path
+        self._libraries = {}
+        self._defined_symbols = {}
+        self._undefined_symbols = {}
+        self._packages = {}
+        self._components = {}
         self._libs2components = {}
 
     def list_libraries(self):
-        return self.libraries.values()
+        return self._libraries.values()
 
     def all_library_files(self):
-        return [lib.filename for lib in self.libraries.values()]
+        return [lib.filename for lib in self._libraries.values()]
 
     def is_library(self, library: str):
-        return strip_library_name(library) in self.libraries
+        return strip_library_name(library) in self._libraries
     
     def get_library(self, library: str):
         lib_name = strip_library_name(library)
-        lib = self.libraries.get(lib_name)
+        lib = self._libraries.get(lib_name)
         if lib and _different_extension(library, lib.filename):
             return None
         return lib
@@ -90,18 +95,18 @@ class Cache:
 
     def add_library(self, library: str, *, system=False, package=None):
         lib = Library(library, system=system)
-        self.libraries[lib.name] = lib
+        self._libraries[lib.name] = lib
         if package:
-            self.packages.setdefault(package, set()).add(lib.name)
+            self._packages.setdefault(package, set()).add(lib.name)
 
     def remove_library(self, library: str):
-        lib = self.libraries.pop(strip_library_name(library), None)
+        lib = self._libraries.pop(strip_library_name(library), None)
         if not lib:
             return
-        self.defined_symbols = {key:val for key, val in self.defined_symbols.items() if val != lib.filename}
+        self._defined_symbols = {key:val for key, val in self._defined_symbols.items() if val != lib.filename}
 
         unneeded_symbols = []
-        for key, val in self.undefined_symbols.items():
+        for key, val in self._undefined_symbols.items():
             try:
                 val.remove(lib.filename)
                 if len(val) == 0:
@@ -109,12 +114,12 @@ class Cache:
             except KeyError:
                 pass
         for symbol in unneeded_symbols:
-            del self.undefined_symbols[symbol]
+            del self._undefined_symbols[symbol]
 
     def add_dependency(self, src, tgt):
         src_name = strip_library_name(src)
         if src != tgt:
-            self.libraries[src_name].add_dependency(tgt)
+            self._libraries[src_name].add_dependency(tgt)
 
     def get_dependencies(self, library: str, *, transitive=False):
         lib = self.get_library(library)
@@ -133,45 +138,58 @@ class Cache:
                     queue.extend(new_deps)
         return lib_deps
     
+    # Symbols
+
+    @property
+    def defined_symbols(self):
+        return frozenset(self._defined_symbols.keys())
+    
+    @property
+    def undefined_symbols(self):
+        return frozenset(self._undefined_symbols.keys())
+    
     def define_symbol(self, symbol: str, library_file: str):
         """Adds the definition of a symbol, and returns a set of libraries that need that symbol"""
         assert self.get_library(library_file)
-        self.defined_symbols[symbol] = library_file
-        results = self.undefined_symbols.pop(symbol, set())
+        self._defined_symbols[symbol] = library_file
+        results = self._undefined_symbols.pop(symbol, set())
         return results
 
     def get_library_defining_symbol(self, symbol: str):
         """Returns the filename of the library that defines a symbol"""
-        return self.defined_symbols.get(symbol)
+        return self._defined_symbols.get(symbol)
     
     def add_undefined_symbol_dependency(self, symbol, library_file):
-        self.undefined_symbols.setdefault(symbol, set()).add(library_file)
+        self._undefined_symbols.setdefault(symbol, set()).add(library_file)
+
+    def libraries_needing_undefined_symbol(self, symbol):
+        return frozenset(self._undefined_symbols.get(symbol, []))
 
     def is_package(self, package: str):
-        return package in self.packages
+        return package in self._packages
     
     def package_libraries(self, package):
-        return list(self.packages.get(package, []))
+        return list(self._packages.get(package, []))
     
     # components
 
     def is_component(self, component: str):
-        return component in self.components
+        return component in self._components
 
     def get_component_libraries(self, component: str):
-        return self.components.get(component, set())
+        return self._components.get(component, set())
     
     def set_component_libraries(self, component: str, libraries: list[str]):
-        self.components[component] = set(libraries)
+        self._components[component] = set(libraries)
 
     def get_library_component(self, lib: str):
-        if len(self.components) > 0 and len(self._libs2components) == 0:
+        if len(self._components) > 0 and len(self._libs2components) == 0:
             self.__build_components_reverse_map()
 
         return self._libs2components.get(strip_library_name(lib), None)
 
     def __build_components_reverse_map(self):
-        for comp, libs in self.components.items():
+        for comp, libs in self._components.items():
             for lib in libs:
                 self._libs2components[strip_library_name(lib)] = comp
 
@@ -184,30 +202,30 @@ class Cache:
 
     def to_json(self):
         return {
-            'libraries': list(self.libraries.values()),
-            'defined': self.defined_symbols,
-            'undefined': self.undefined_symbols,
-            'packages': self.packages,
-            'components': self.components,
+            'libraries': list(self._libraries.values()),
+            'defined': self._defined_symbols,
+            'undefined': self._undefined_symbols,
+            'packages': self._packages,
+            'components': self._components,
         }
 
     def load(self):
         try:
-            with open(self.filepath, 'r') as f:
+            with open(self._filepath, 'r') as f:
                 data = json.load(f)
                 libraries = [Library.from_json(lib) for lib in data['libraries']]
-                self.libraries = {lib.name: lib for lib in libraries}
-                self.packages = {k: set(v) for k, v in data['packages'].items()}
-                self.defined_symbols = data['defined']
-                self.undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
-                self.components = {k: set(v) for k, v in data['components'].items()}
+                self._libraries = {lib.name: lib for lib in libraries}
+                self._packages = {k: set(v) for k, v in data['packages'].items()}
+                self._defined_symbols = data['defined']
+                self._undefined_symbols = {k: set(v) for k, v in data['undefined'].items()}
+                self._components = {k: set(v) for k, v in data['components'].items()}
         except FileNotFoundError:
             pass
 
     def save(self):
-            if not self.filepath:
+            if not self._filepath:
                 raise('cannot save cache: file path not set')
-            with open(self.filepath, 'w') as f:
+            with open(self._filepath, 'w') as f:
                 json.dump(self, f, indent=2, default=json_encoder)
 
 
